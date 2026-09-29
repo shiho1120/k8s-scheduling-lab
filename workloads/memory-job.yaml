@@ -1,0 +1,30 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: memory-job
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: memory-worker
+          image: python:3.12-alpine
+          command:
+            - python
+            - -c
+            - |
+              import time
+              print("Memory workload started")
+              data = bytearray(200 * 1024 * 1024)
+              for i in range(0, len(data), 4096):
+                  data[i] = 1
+              time.sleep(30)
+              print("Memory workload completed")
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "250m"
+              memory: "384Mi"
+  backoffLimit: 0

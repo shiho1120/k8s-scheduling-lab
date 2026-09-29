@@ -1,0 +1,68 @@
+pipeline {
+    agent any
+
+    environment {
+        NAMESPACE = 'default'
+        JOB_NAME = "jenkins-workload-${BUILD_NUMBER}"
+        PATH = "/var/jenkins_home/bin:${env.PATH}"
+    }
+
+    stages {
+        stage('Check Kubernetes') {
+            steps {
+                sh '''
+                    echo "=== Kubernetes Connection ==="
+                    kubectl version --client
+                    kubectl auth can-i create jobs -n ${NAMESPACE}
+                '''
+            }
+        }
+
+        stage('Submit Workload') {
+            steps {
+                sh '''
+                    echo "Submitting ${JOB_NAME}"
+
+                    kubectl create job ${JOB_NAME} \
+                      -n ${NAMESPACE} \
+                      --image=alpine:3.20 \
+                      -- /bin/sh -c \
+                      'echo "Workload started"; sleep 10; echo "Workload completed"'
+                '''
+            }
+        }
+
+        stage('Wait for Completion') {
+            steps {
+                sh '''
+                    kubectl wait \
+                      --for=condition=complete \
+                      --timeout=120s \
+                      job/${JOB_NAME} \
+                      -n ${NAMESPACE}
+                '''
+            }
+        }
+
+        stage('Show Result') {
+            steps {
+                sh '''
+                    echo "=== Workload Result ==="
+                    kubectl logs job/${JOB_NAME} -n ${NAMESPACE}
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            sh '''
+                echo "Cleaning ${JOB_NAME}"
+
+                kubectl delete job ${JOB_NAME} \
+                  -n ${NAMESPACE} \
+                  --ignore-not-found=true
+            '''
+        }
+    }
+}

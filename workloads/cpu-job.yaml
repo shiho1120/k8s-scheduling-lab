@@ -1,0 +1,26 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cpu-job
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: cpu-worker
+          image: alpine:3.20
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "CPU workload started"
+              time dd if=/dev/zero bs=1M count=1500 2>/dev/null | sha256sum
+              echo "CPU workload completed"
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "128Mi"
+  backoffLimit: 0
