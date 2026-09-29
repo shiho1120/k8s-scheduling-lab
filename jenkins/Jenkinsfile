@@ -27,7 +27,7 @@ pipeline {
                       -n ${NAMESPACE} \
                       --image=alpine:3.20 \
                       -- /bin/sh -c \
-                      'echo "Workload started"; sleep 10; echo "Workload completed"'
+                      'echo "Workload v2 started"; sleep 15; echo "Workload v2 completed"'
                 '''
             }
         }
