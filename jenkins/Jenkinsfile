@@ -1,33 +1,47 @@
+
 pipeline {
     agent any
 
     environment {
         NAMESPACE = 'default'
-        JOB_NAME = "jenkins-workload-${BUILD_NUMBER}"
+        JOB_PREFIX = "baseline-${BUILD_NUMBER}"
         PATH = "/var/jenkins_home/bin:${env.PATH}"
+    }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
     }
 
     stages {
         stage('Check Kubernetes') {
             steps {
                 sh '''
-                    echo "=== Kubernetes Connection ==="
                     kubectl version --client
-                    kubectl auth can-i create jobs -n ${NAMESPACE}
+                    kubectl auth can-i create jobs -n "$NAMESPACE"
+                    kubectl get nodes
                 '''
             }
         }
 
-        stage('Submit Workload') {
+        stage('Submit Workloads') {
             steps {
                 sh '''
-                    echo "Submitting ${JOB_NAME}"
+                    set -eu
 
-                    kubectl create job ${JOB_NAME} \
-                      -n ${NAMESPACE} \
-                      --image=alpine:3.20 \
-                      -- /bin/sh -c \
-                      'echo "Workload v2 started"; sleep 15; echo "Workload v2 completed"'
+                    for type in cpu memory; do
+                        for i in 1 2 3; do
+                            name="${JOB_PREFIX}-${type}-${i}"
+
+                            echo "Submitting $name"
+
+                            sed "s/^  name: ${type}-job$/  name: ${name}/" \
+                                "workloads/${type}-job.yaml" \
+                                | kubectl create -n "$NAMESPACE" -f -
+                        done
+                    done
+
+                    kubectl get jobs -n "$NAMESPACE"
                 '''
             }
         }
@@ -35,20 +49,65 @@ pipeline {
         stage('Wait for Completion') {
             steps {
                 sh '''
-                    kubectl wait \
-                      --for=condition=complete \
-                      --timeout=120s \
-                      job/${JOB_NAME} \
-                      -n ${NAMESPACE}
+                    set -eu
+
+                    for type in cpu memory; do
+                        for i in 1 2 3; do
+                            job="${JOB_PREFIX}-${type}-${i}"
+
+                            echo "Waiting for $job"
+
+                            kubectl wait \
+                                -n "$NAMESPACE" \
+                                --for=condition=complete \
+                                --timeout=300s \
+                                "job/$job"
+                        done
+                    done
                 '''
             }
         }
 
-        stage('Show Result') {
+        stage('Collect Results') {
             steps {
                 sh '''
-                    echo "=== Workload Result ==="
-                    kubectl logs job/${JOB_NAME} -n ${NAMESPACE}
+                    set -eu
+                    mkdir -p results
+
+                    output="results/${JOB_PREFIX}.csv"
+
+                    echo "job,type,pod,node,created_at,scheduled_at,container_started_at,container_finished_at" > "$output"
+
+                    for type in cpu memory; do
+                        for i in 1 2 3; do
+                            job="${JOB_PREFIX}-${type}-${i}"
+
+                            pod=$(kubectl get pods \
+                                -n "$NAMESPACE" \
+                                -l "batch.kubernetes.io/job-name=$job" \
+                                -o jsonpath='{.items[0].metadata.name}')
+
+                            data=$(kubectl get pod "$pod" \
+                                -n "$NAMESPACE" \
+                                -o jsonpath='{.spec.nodeName}{"|"}{.metadata.creationTimestamp}{"|"}{.status.conditions[?(@.type=="PodScheduled")].lastTransitionTime}{"|"}{.status.containerStatuses[0].state.terminated.startedAt}{"|"}{.status.containerStatuses[0].state.terminated.finishedAt}')
+
+                            printf '%s\\n' "$data" | awk \
+                                -F '|' \
+                                -v job="$job" \
+                                -v type="$type" \
+                                -v pod="$pod" \
+                                '{
+                                    printf "%s,%s,%s,%s,%s,%s,%s,%s\\n",
+                                        job,type,pod,$1,$2,$3,$4,$5
+                                }' >> "$output"
+
+                            echo "=== $job ==="
+                            kubectl logs -n "$NAMESPACE" "job/$job"
+                        done
+                    done
+
+                    echo "=== CSV Results ==="
+                    cat "$output"
                 '''
             }
         }
@@ -56,13 +115,11 @@ pipeline {
 
     post {
         always {
-            sh '''
-                echo "Cleaning ${JOB_NAME}"
-
-                kubectl delete job ${JOB_NAME} \
-                  -n ${NAMESPACE} \
-                  --ignore-not-found=true
-            '''
+            archiveArtifacts(
+                artifacts: 'results/baseline-*.csv',
+                allowEmptyArchive: true
+            )
         }
     }
 }
+
