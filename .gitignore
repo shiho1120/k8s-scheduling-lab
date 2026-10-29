@@ -3,3 +3,7 @@
 
 results/*
 !results/.gitkeep
+
+# Python cache
+__pycache__/
+*.pyc
