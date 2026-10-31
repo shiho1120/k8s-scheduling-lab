@@ -4,7 +4,7 @@
 
 import argparse
 import json
-
+from decision_logger import log_decision
 from pending_pod_scanner import (
     NAMESPACE,
     SCHEDULER_NAME,
@@ -73,22 +73,33 @@ def main():
             + MEM_WEIGHT * (1 - mem)
         )
 
-        scored.append((score, node))
+        scored.append((score, node, cpu, mem))
         print(f"{node}: score={score:.4f}")
 
     if not scored:
         raise RuntimeError("No nodes with valid metrics")
 
     scored.sort(key=lambda item: (-item[0], item[1]))
-    score, selected = scored[0]
+    score, selected, selected_cpu, selected_mem = scored[0]
 
     print(f"\nSelected Node: {selected}")
     print(f"Score: {score:.4f}")
 
     if not args.bind:
+        log_decision(
+            pod_namespace=NAMESPACE,
+            pod_name=name,
+            pod_uid=uid,
+            selected_node=selected,
+            cpu_usage=selected_cpu,
+            memory_usage=selected_mem,
+            score=score,
+            action="dry_run",
+            result="dry_run",
+        )   
+
         print("Action: DRY RUN - NO POD BINDING")
         return
-
     # Binding 前重新讀取 Pod，防止誤操作已變更的 Pod
     latest = json.loads(
         kubectl(
@@ -142,9 +153,37 @@ def main():
         f"/pods/{name}/binding"
     )
 
-    kubectl(
-        "create", "--raw", path, "-f", "-",
-        payload=binding,
+
+    try:
+        kubectl(
+            "create", "--raw", path, "-f", "-",
+            payload=binding,
+        )
+    except Exception as exc:
+        log_decision(
+            pod_namespace=NAMESPACE,
+            pod_name=name,
+            pod_uid=uid,
+            selected_node=selected,
+            cpu_usage=selected_cpu,
+            memory_usage=selected_mem,
+            score=score,
+            action="bind",
+            result="failed",
+            error=str(exc),
+        )
+        raise
+
+    log_decision(
+        pod_namespace=NAMESPACE,
+        pod_name=name,
+        pod_uid=uid,
+        selected_node=selected,
+        cpu_usage=selected_cpu,
+        memory_usage=selected_mem,
+        score=score,
+        action="bind",
+        result="submitted",
     )
 
     print(f"Binding submitted: {name} -> {selected}")
