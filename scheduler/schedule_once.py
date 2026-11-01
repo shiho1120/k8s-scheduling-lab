@@ -33,15 +33,32 @@ def main():
         action="store_true",
         help="Actually bind one Pod; default is dry run",
     )
+    parser.add_argument(
+        "--pod-uid",
+        default=None,
+        help="Schedule only the Pod matching this UID",
+    )
+
     args = parser.parse_args()
     start_ns = time.perf_counter_ns()
     pods = scan_pending_pods()
+
+    if args.pod_uid:
+        pods = [
+            pod for pod in pods
+            if pod["metadata"]["uid"] == args.pod_uid
+        ]
+
+        if len(pods) != 1:
+            raise RuntimeError(
+                f"Target Pod UID not eligible: {args.pod_uid}"
+            )
 
     if not pods:
         print("No eligible Pending Pods.")
         return
 
-    # 每次只選最早建立的一個 Pod
+    # 指定 UID 時使用指定 Pod，否則維持原本行為
     pod = pods[0]
     name = pod["metadata"]["name"]
     uid = pod["metadata"]["uid"]
@@ -201,41 +218,48 @@ def main():
             error=str(exc),
         )
         raise
+    # Binding API 已成功返回
+    print(f"Binding submitted: {name} -> {selected}", flush=True)
 
-    log_decision(
-        pod_namespace=NAMESPACE,
-        pod_name=name,
-        pod_uid=uid,
-        selected_node=selected,
-        cpu_usage=selected_cpu,
-        memory_usage=selected_mem,
-        score=score,
-        action="bind",
-        result="submitted",
-    )
+    try:
+        log_decision(
+            pod_namespace=NAMESPACE,
+            pod_name=name,
+            pod_uid=uid,
+            selected_node=selected,
+            cpu_usage=selected_cpu,
+            memory_usage=selected_mem,
+            score=score,
+            action="bind",
+            result="submitted",
+        )
 
-    log_experiment(
-        pod_namespace=NAMESPACE,
-        pod_name=name,
-        pod_uid=uid,
-        selected_node=selected,
-        filter_duration_ms=(
-            filter_end_ns - filter_start_ns
-        ) / 1_000_000,
-        score_duration_ms=(
-            score_end_ns - score_start_ns
-        ) / 1_000_000,
-        bind_duration_ms=(
-            bind_end_ns - bind_start_ns
-        ) / 1_000_000,
-        total_duration_ms=(
-            bind_end_ns - start_ns
-        ) / 1_000_000,
-        candidate_scores=candidate_scores,
-        result="submitted",
-    )
-    print(f"Binding submitted: {name} -> {selected}")
+        log_experiment(
+            pod_namespace=NAMESPACE,
+            pod_name=name,
+            pod_uid=uid,
+            selected_node=selected,
+            filter_duration_ms=(
+                filter_end_ns - filter_start_ns
+            ) / 1_000_000,
+            score_duration_ms=(
+                score_end_ns - score_start_ns
+            ) / 1_000_000,
+            bind_duration_ms=(
+                bind_end_ns - bind_start_ns
+            ) / 1_000_000,
+            total_duration_ms=(
+                bind_end_ns - start_ns
+            ) / 1_000_000,
+            candidate_scores=candidate_scores,
+            result="submitted",
+        )
 
+    except Exception as exc:
+        print(
+            f"WARNING: Binding submitted, but logging failed: {exc}",
+            flush=True,
+        )
 
 if __name__ == "__main__":
     main()
