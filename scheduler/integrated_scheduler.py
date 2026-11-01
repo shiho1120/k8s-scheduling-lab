@@ -21,8 +21,10 @@ from resource_aware_scheduler import (
     WORKERS as METRIC_INSTANCES,
 )
 
-
-def eligible_nodes():
+def eligible_nodes(
+    request_cpu_m=REQUEST_CPU_M,
+    request_memory_mi=REQUEST_MEMORY_MI,
+):
     nodes = kubectl_json("get", "nodes")["items"]
     pods = kubectl_json("get", "pods", "-A")["items"]
 
@@ -81,10 +83,10 @@ def eligible_nodes():
         cpu_free = cpu_total - cpu_used
         mem_free = mem_total - mem_used
 
-        if cpu_free < REQUEST_CPU_M:
+        if cpu_free < request_cpu_m:
             reasons.append("Insufficient CPU")
 
-        if mem_free < REQUEST_MEMORY_MI:
+        if mem_free < request_memory_mi:
             reasons.append("Insufficient Memory")
 
         print(

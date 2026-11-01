@@ -4,6 +4,7 @@
 
 import argparse
 import json
+from node_filter import pod_requests
 from decision_logger import log_decision
 from pending_pod_scanner import (
     NAMESPACE,
@@ -46,7 +47,18 @@ def main():
     print(f"Selected Pending Pod: {name}")
     print(f"Pod UID: {uid}")
 
-    candidates = eligible_nodes()
+        # 根據目前待排程 Pod 的實際 Requests 進行過濾
+    request_cpu_m, request_memory_mi = pod_requests(pod)
+
+    print(
+        f"Pod Requests: CPU={request_cpu_m:.0f}m, "
+        f"Memory={request_memory_mi:.0f}Mi"
+    )
+
+    candidates = eligible_nodes(
+        request_cpu_m=request_cpu_m,
+        request_memory_mi=request_memory_mi,
+    )
     if not candidates:
         raise RuntimeError("No eligible nodes")
 

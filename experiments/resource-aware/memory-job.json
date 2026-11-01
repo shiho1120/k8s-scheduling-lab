@@ -1,0 +1,44 @@
+{
+  "apiVersion": "batch/v1",
+  "kind": "Job",
+  "metadata": {
+    "name": "ra-memory-test-1",
+    "namespace": "scheduler-lab"
+  },
+  "spec": {
+    "backoffLimit": 0,
+    "template": {
+      "spec": {
+        "containers": [
+          {
+            "command": [
+              "python",
+              "-c",
+              "import time\nprint(\"Memory workload started\")\ndata = bytearray(200 * 1024 * 1024)\nfor i in range(0, len(data), 4096):\n    data[i] = 1\ntime.sleep(30)\nprint(\"Memory workload completed\")\n"
+            ],
+            "image": "python:3.12-alpine",
+            "name": "memory-worker",
+            "resources": {
+              "limits": {
+                "cpu": "250m",
+                "memory": "384Mi"
+              },
+              "requests": {
+                "cpu": "100m",
+                "memory": "256Mi"
+              }
+            }
+          }
+        ],
+        "restartPolicy": "Never",
+        "schedulerName": "resource-aware-scheduler"
+      },
+      "metadata": {
+        "labels": {
+          "experiment": "resource-aware-v6",
+          "workload-type": "memory"
+        }
+      }
+    }
+  }
+}

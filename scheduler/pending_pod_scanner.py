@@ -74,9 +74,9 @@ def validate_test_pod(pod):
     )
 
     # 目前兩種測試負載使用相同 Requests
-    if requests != {"cpu": "250m", "memory": "64Mi"}:
-        return "Unsupported resource requests"
-
+    if image in ("nginx:stable", "alpine:3.20"):
+        if requests != {"cpu": "250m", "memory": "64Mi"}:
+            return "Unsupported resource requests"
     # v5：既有 nginx Binding 測試
     if image == "nginx:stable":
         if container.get("name") != "nginx":
@@ -131,6 +131,65 @@ def validate_test_pod(pod):
             "memory": "128Mi",
         }:
             return "Unexpected resource limits"
+
+        return None
+
+    # v6.3: Memory Job workload
+    if image == "python:3.12-alpine":
+        labels = metadata.get("labels", {})
+
+        if labels.get("experiment") != "resource-aware-v6":
+            return "Missing experiment label"
+
+        if labels.get("workload-type") != "memory":
+            return "Unsupported workload type"
+
+        owners = metadata.get("ownerReferences", [])
+
+        if not any(
+            owner.get("kind") == "Job"
+            and owner.get("controller") is True
+            and owner.get("apiVersion") == "batch/v1"
+            for owner in owners
+        ):
+            return "Pod is not owned by a Job"
+
+        # 讀取既有 Baseline Memory Job 的容器規格
+        from pathlib import Path
+        import subprocess
+        import json
+
+        source = (
+            Path(__file__).resolve().parent.parent
+            / "workloads" / "memory-job.yaml"
+        )
+
+        expected_job = json.loads(
+            subprocess.check_output(
+                [
+                    "kubectl", "create",
+                    "--dry-run=client",
+                    "-f", str(source),
+                    "-o", "json",
+                ],
+                text=True,
+            )
+        )
+
+        expected = (
+            expected_job["spec"]["template"]["spec"]
+            ["containers"][0]
+        )
+
+        # 使用與 Baseline 相同的容器、指令及資源規格
+        for key in (
+            "name", "image", "command", "args", "resources"
+        ):
+            if container.get(key) != expected.get(key):
+                return f"Memory workload mismatch: {key}"
+
+        if spec.get("restartPolicy") != "Never":
+            return "Unsupported restart policy"
 
         return None
 
