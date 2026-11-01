@@ -4,6 +4,8 @@
 
 import argparse
 import json
+import time
+from experiment_logger import log_experiment
 from node_filter import pod_requests
 from decision_logger import log_decision
 from pending_pod_scanner import (
@@ -32,7 +34,7 @@ def main():
         help="Actually bind one Pod; default is dry run",
     )
     args = parser.parse_args()
-
+    start_ns = time.perf_counter_ns()
     pods = scan_pending_pods()
 
     if not pods:
@@ -55,13 +57,16 @@ def main():
         f"Memory={request_memory_mi:.0f}Mi"
     )
 
+    filter_start_ns = time.perf_counter_ns()
     candidates = eligible_nodes(
         request_cpu_m=request_cpu_m,
         request_memory_mi=request_memory_mi,
     )
+    filter_end_ns = time.perf_counter_ns()
     if not candidates:
         raise RuntimeError("No eligible nodes")
 
+    score_start_ns = time.perf_counter_ns()
     cpu_data = query_prometheus(CPU_QUERY)
     mem_data = query_prometheus(MEM_QUERY)
 
@@ -93,7 +98,16 @@ def main():
 
     scored.sort(key=lambda item: (-item[0], item[1]))
     score, selected, selected_cpu, selected_mem = scored[0]
-
+    score_end_ns = time.perf_counter_ns()
+    candidate_scores = [
+    {
+        "node": node,
+        "cpu_usage": cpu,
+        "memory_usage": mem,
+        "score": round(node_score, 6),
+    }
+    for node_score, node, cpu, mem in scored
+    ] 
     print(f"\nSelected Node: {selected}")
     print(f"Score: {score:.4f}")
 
@@ -165,12 +179,14 @@ def main():
         f"/pods/{name}/binding"
     )
 
+    bind_start_ns = time.perf_counter_ns()
 
     try:
         kubectl(
             "create", "--raw", path, "-f", "-",
             payload=binding,
         )
+        bind_end_ns = time.perf_counter_ns()
     except Exception as exc:
         log_decision(
             pod_namespace=NAMESPACE,
@@ -198,6 +214,26 @@ def main():
         result="submitted",
     )
 
+    log_experiment(
+        pod_namespace=NAMESPACE,
+        pod_name=name,
+        pod_uid=uid,
+        selected_node=selected,
+        filter_duration_ms=(
+            filter_end_ns - filter_start_ns
+        ) / 1_000_000,
+        score_duration_ms=(
+            score_end_ns - score_start_ns
+        ) / 1_000_000,
+        bind_duration_ms=(
+            bind_end_ns - bind_start_ns
+        ) / 1_000_000,
+        total_duration_ms=(
+            bind_end_ns - start_ns
+        ) / 1_000_000,
+        candidate_scores=candidate_scores,
+        result="submitted",
+    )
     print(f"Binding submitted: {name} -> {selected}")
 
 
