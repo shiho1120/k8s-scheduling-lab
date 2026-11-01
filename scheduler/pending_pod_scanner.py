@@ -64,17 +64,77 @@ def validate_test_pod(pod):
         ):
             return "Unsupported volume"
 
+
     container = spec["containers"][0]
+    metadata = pod["metadata"]
 
-    # 固定測試工作負載：避免把掃描器誤當成通用 Scheduler。
-    if container.get("image") != "nginx:stable":
-        return "Unsupported test image"
+    image = container.get("image", "")
+    requests = container.get("resources", {}).get(
+        "requests", {}
+    )
 
-    requests = container.get("resources", {}).get("requests", {})
+    # 目前兩種測試負載使用相同 Requests
     if requests != {"cpu": "250m", "memory": "64Mi"}:
         return "Unsupported resource requests"
 
-    return None
+    # v5：既有 nginx Binding 測試
+    if image == "nginx:stable":
+        if container.get("name") != "nginx":
+            return "Unexpected nginx container"
+
+        return None
+
+    # v6.1：CPU Job 實驗
+    if image == "alpine:3.20":
+        labels = metadata.get("labels", {})
+
+        if labels.get("experiment") != "resource-aware-v6":
+            return "Missing experiment label"
+
+        if labels.get("workload-type") != "cpu":
+            return "Unsupported workload type"
+
+        # 必須是 Kubernetes Job Controller 建立的 Pod
+        owners = metadata.get("ownerReferences", [])
+
+        if not any(
+            owner.get("kind") == "Job"
+            and owner.get("controller") is True
+            and owner.get("apiVersion") == "batch/v1"
+            for owner in owners
+        ):
+            return "Pod is not owned by a Job"
+
+        if container.get("name") != "cpu":
+            return "Unexpected container name"
+
+        if container.get("command", [])[:2] != [
+            "/bin/sh", "-c"
+        ]:
+            return "Unsupported CPU command"
+
+        command = container.get("command", [])
+
+        if (
+            len(command) != 3
+            or command[2].strip()
+            != "time dd if=/dev/zero bs=1M count=1500 2>/dev/null | sha256sum"
+        ):
+            return "Unexpected CPU workload"
+
+        limits = container.get("resources", {}).get(
+            "limits", {}
+        )
+
+        if limits != {
+            "cpu": "500m",
+            "memory": "128Mi",
+        }:
+            return "Unexpected resource limits"
+
+        return None
+
+    return "Unsupported test image"
 
 
 def scan_pending_pods():
