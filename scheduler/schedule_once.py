@@ -221,6 +221,8 @@ def main():
     # Binding API 已成功返回
     print(f"Binding submitted: {name} -> {selected}", flush=True)
 
+
+    # 決策紀錄失敗，不影響已成功的 Binding
     try:
         log_decision(
             pod_namespace=NAMESPACE,
@@ -233,7 +235,14 @@ def main():
             action="bind",
             result="submitted",
         )
+    except Exception as exc:
+        print(
+            f"WARNING: Decision logging failed: {exc}",
+            flush=True,
+        )
 
+    # 實驗紀錄獨立處理，避免受到決策 Logger 影響
+    try:
         log_experiment(
             pod_namespace=NAMESPACE,
             pod_name=name,
@@ -254,10 +263,9 @@ def main():
             candidate_scores=candidate_scores,
             result="submitted",
         )
-
     except Exception as exc:
         print(
-            f"WARNING: Binding submitted, but logging failed: {exc}",
+            f"WARNING: Experiment logging failed: {exc}",
             flush=True,
         )
 

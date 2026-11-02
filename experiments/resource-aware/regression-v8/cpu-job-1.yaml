@@ -1,0 +1,30 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ra-cpu-regression-1
+  namespace: scheduler-lab
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        experiment: resource-aware-v6
+        workload-type: cpu
+    spec:
+      schedulerName: resource-aware-scheduler
+      restartPolicy: Never
+      containers:
+        - name: cpu
+          image: alpine:3.20
+          command:
+            - /bin/sh
+            - -c
+            - |
+              time dd if=/dev/zero bs=1M count=1500 2>/dev/null | sha256sum
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "128Mi"
