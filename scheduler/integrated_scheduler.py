@@ -1,7 +1,7 @@
 
 #!/usr/bin/env python3
 """Resource-Aware Scheduler v3: Filtering + Scoring Dry Run."""
-
+import os
 from node_filter import (
     kubectl_json,
     cpu_millicores,
@@ -20,13 +20,60 @@ from resource_aware_scheduler import (
     MEM_WEIGHT,
     WORKERS as METRIC_INSTANCES,
 )
-
 def eligible_nodes(
     request_cpu_m=REQUEST_CPU_M,
     request_memory_mi=REQUEST_MEMORY_MI,
 ):
-    nodes = kubectl_json("get", "nodes")["items"]
-    pods = kubectl_json("get", "pods", "-A")["items"]
+    source = os.environ.get("SCHEDULER_API_SOURCE", "kubectl")
+
+    if source == "kubectl":
+        nodes = kubectl_json("get", "nodes")["items"]
+        pods = kubectl_json("get", "pods", "-A")["items"]
+
+    elif source == "raw":
+        from k8s_raw_client import RawKubernetesClient
+
+        api = RawKubernetesClient()
+        nodes = api.get_nodes()["items"]
+        pods = api.get_pods()["items"]
+
+    else:
+        raise ValueError(
+            f"Unsupported SCHEDULER_API_SOURCE: {source}"
+        )
+    # 單次掃描 Pods，依照所屬 Node 彙整資源 Requests
+    worker_set = set(WORKERS)
+
+    usage = {
+        name: {
+            "cpu": 0,
+            "memory": 0,
+            "errors": [],
+        }
+        for name in WORKERS
+    }
+
+    for pod in pods:
+        name = pod["spec"].get("nodeName")
+
+        if name not in worker_set:
+            continue
+
+        if pod.get("status", {}).get("phase") in (
+            "Succeeded", "Failed"
+        ):
+            continue
+
+        try:
+            cpu, mem = pod_requests(pod)
+            usage[name]["cpu"] += cpu
+            usage[name]["memory"] += mem
+
+        except ValueError as exc:
+            usage[name]["errors"].append(
+                f"Unsupported Pod "
+                f"{pod['metadata']['name']}: {exc}"
+            )
 
     eligible = []
 
@@ -58,28 +105,10 @@ def eligible_nodes(
         cpu_total = cpu_millicores(capacity["cpu"])
         mem_total = memory_mi(capacity["memory"])
 
-        cpu_used = 0
-        mem_used = 0
+        cpu_used = usage[name]["cpu"]
+        mem_used = usage[name]["memory"]
 
-        for pod in pods:
-            if pod["spec"].get("nodeName") != name:
-                continue
-
-            if pod.get("status", {}).get("phase") in (
-                "Succeeded", "Failed"
-            ):
-                continue
-
-            try:
-                cpu, mem = pod_requests(pod)
-                cpu_used += cpu
-                mem_used += mem
-            except ValueError as exc:
-                reasons.append(
-                    f"Unsupported Pod "
-                    f"{pod['metadata']['name']}: {exc}"
-                )
-
+        reasons.extend(usage[name]["errors"])
         cpu_free = cpu_total - cpu_used
         mem_free = mem_total - mem_used
 

@@ -4,6 +4,7 @@
 
 import subprocess
 import time
+import sys
 from datetime import datetime, timezone
 
 from pending_pod_scanner import scan_pending_pods
@@ -37,7 +38,7 @@ def main():
 
             result = subprocess.run(
                 [
-                    "python3",
+                    sys.executable,
                     "scheduler/schedule_once.py",
                     "--bind",
                 ],

@@ -58,6 +58,8 @@ def main():
         name = pod["metadata"]["name"]
 
         print(f"[{timestamp()}] Detected: {name}", flush=True)
+        subprocess_start_ns = time.perf_counter_ns()
+
         result = subprocess.run(
             [
                 sys.executable,
@@ -70,7 +72,17 @@ def main():
             text=True,
         )
 
-        print(result.stdout, flush=True)
+        subprocess_end_ns = time.perf_counter_ns()
+
+        subprocess_duration_ms = (
+            subprocess_end_ns - subprocess_start_ns
+        ) / 1_000_000
+
+        print(
+            f"Subprocess duration: "
+            f"{subprocess_duration_ms:.3f} ms",
+            flush=True,
+        )
 
         if result.returncode != 0:
             print(result.stderr, file=sys.stderr, flush=True)
