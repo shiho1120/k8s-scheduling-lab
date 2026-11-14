@@ -81,19 +81,9 @@ Score = 0.6 × (1 - CPU Usage) + 0.4 × (1 - Memory Usage)
 
 ## 專案結構
 
-```text
-scheduler/
-├── pending_pod_scanner.py       # Pending Pod 偵測
-├── node_filter.py               # 資源需求與節點過濾
-├── integrated_scheduler.py      # Filtering 與 Scoring
-├── resource_aware_scheduler.py  # Prometheus 資源指標查詢
-├── schedule_once.py             # 單次排程與 Binding
-├── batch_scheduler.py           # 批次自動排程
-└── k8s_raw_client.py            # Kubernetes Raw API
-
-experiments/                     # 測試工作負載與實驗設定
-results/                         # 排程紀錄與效能測試結果
-```
+- `scheduler/`：自訂 Scheduler 的核心程式，包含 Filtering、Scoring、Binding 與效能測試。
+- `experiments/`：Kubernetes 工作負載及實驗設定。
+- `results/`：排程紀錄與效能測試結果。
 
 ## 使用方式
 
